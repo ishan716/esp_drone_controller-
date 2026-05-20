@@ -6,6 +6,8 @@
 const char *kSsid = "DroneController";
 const char *kPassword = "12345678";
 const uint16_t kUdpPort = 5005;
+const uint8_t kApChannel = 6;
+const uint8_t kApMaxClients = 4;
 const IPAddress kApIp(192, 168, 4, 1);
 const IPAddress kApGateway(192, 168, 4, 1);
 const IPAddress kApSubnet(255, 255, 255, 0);
@@ -13,6 +15,7 @@ const IPAddress kApSubnet(255, 255, 255, 0);
 const int kCrsfTxPin = 20;
 const int kCrsfRxPin = 21;
 const uint32_t kCrsfBaud = 420000;
+const bool kEnableCrsfOutput = true;
 
 const uint8_t kCrsfAddress = 0xC8;
 const uint8_t kCrsfTypeRcChannels = 0x16;
@@ -23,8 +26,12 @@ WiFiUDP udp;
 HardwareSerial CrsfSerial(1);
 
 uint16_t channels[16];
+bool apRunning = false;
 unsigned long lastReceivedMs = 0;
 unsigned long lastSendMs = 0;
+unsigned long lastStatusMs = 0;
+unsigned long lastApRetryMs = 0;
+uint32_t receivedPacketCount = 0;
 
 uint8_t crc8(const uint8_t *data, size_t len) {
   uint8_t crc = 0;
@@ -77,6 +84,10 @@ void packChannels(uint8_t *payload, const uint16_t *ch) {
 }
 
 void sendCrsfFrame() {
+  if (!kEnableCrsfOutput) {
+    return;
+  }
+
   uint8_t frame[kCrsfFrameSize];
   const uint8_t length = 1 + kCrsfPayloadSize + 1;
 
@@ -92,6 +103,56 @@ void sendCrsfFrame() {
   CrsfSerial.write(frame, kCrsfFrameSize);
 }
 
+bool startAccessPoint() {
+  Serial.println("Starting WiFi AP...");
+
+  WiFi.persistent(false);
+  WiFi.softAPdisconnect(true);
+  WiFi.disconnect(true, true);
+  WiFi.mode(WIFI_OFF);
+  delay(300);
+
+  WiFi.mode(WIFI_AP);
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+
+  if (!WiFi.softAPConfig(kApIp, kApGateway, kApSubnet)) {
+    Serial.println("WiFi AP config failed");
+    return false;
+  }
+
+  const bool started = WiFi.softAP(
+    kSsid,
+    kPassword,
+    kApChannel,
+    false,
+    kApMaxClients
+  );
+
+  if (!started) {
+    Serial.println("WiFi AP start failed");
+    return false;
+  }
+
+  delay(300);
+  udp.stop();
+  udp.begin(kUdpPort);
+
+  Serial.print("WiFi AP started: yes");
+  Serial.print(" SSID=");
+  Serial.print(kSsid);
+  Serial.print(" IP=");
+  Serial.print(WiFi.softAPIP());
+  Serial.print(" channel=");
+  Serial.print(kApChannel);
+  Serial.print(" mac=");
+  Serial.println(WiFi.softAPmacAddress());
+  Serial.print("UDP listening on port: ");
+  Serial.println(kUdpPort);
+
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -100,31 +161,34 @@ void setup() {
 
   setDefaultChannels();
 
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(kApIp, kApGateway, kApSubnet);
-  const bool apStarted = WiFi.softAP(kSsid, kPassword, 1, 0, 4);
-  udp.begin(kUdpPort);
+  apRunning = startAccessPoint();
 
-  Serial.print("WiFi AP started: ");
-  Serial.println(apStarted ? "yes" : "no");
-  Serial.print("WiFi AP SSID: ");
-  Serial.println(kSsid);
-  Serial.print("WiFi AP IP: ");
-  Serial.println(WiFi.softAPIP());
-  Serial.print("UDP listening on port: ");
-  Serial.println(kUdpPort);
-
-  CrsfSerial.begin(kCrsfBaud, SERIAL_8N1, kCrsfRxPin, kCrsfTxPin);
-  Serial.println("CRSF serial started");
+  if (kEnableCrsfOutput) {
+    CrsfSerial.begin(kCrsfBaud, SERIAL_8N1, kCrsfRxPin, kCrsfTxPin);
+    Serial.print("CRSF serial started TX=");
+    Serial.print(kCrsfTxPin);
+    Serial.print(" RX=");
+    Serial.println(kCrsfRxPin);
+  } else {
+    Serial.println("CRSF serial disabled for WiFi/UDP debugging");
+  }
 }
 
 void loop() {
+  const unsigned long now = millis();
+  if (!apRunning && now - lastApRetryMs >= 5000) {
+    Serial.println("Retrying WiFi AP start...");
+    apRunning = startAccessPoint();
+    lastApRetryMs = now;
+  }
+
   const int packetSize = udp.parsePacket();
   if (packetSize > 0) {
     char buffer[256];
     const int len = udp.read(buffer, sizeof(buffer) - 1);
     if (len > 0) {
       buffer[len] = '\0';
+      receivedPacketCount++;
       Serial.print("Raw UDP: ");
       Serial.println(buffer);
 
@@ -168,7 +232,18 @@ void loop() {
     }
   }
 
-  const unsigned long now = millis();
+  if (now - lastStatusMs >= 2000) {
+    Serial.print("Status clients=");
+    Serial.print(WiFi.softAPgetStationNum());
+    Serial.print(" packets=");
+    Serial.print(receivedPacketCount);
+    Serial.print(" ip=");
+    Serial.print(WiFi.softAPIP());
+    Serial.print(" ap=");
+    Serial.println(apRunning ? "on" : "off");
+    lastStatusMs = now;
+  }
+
   if (now - lastReceivedMs > 300) {
     setDefaultChannels();
   }
