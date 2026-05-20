@@ -122,6 +122,23 @@ void loop() {
         channels[4] = mapToCrsf(arm ? 2000 : 1000);
 
         lastReceivedMs = millis();
+
+        Serial.print("UDP packet from ");
+        Serial.print(udp.remoteIP());
+        Serial.print(":");
+        Serial.print(udp.remotePort());
+        Serial.print(" len=");
+        Serial.print(len);
+        Serial.print(" roll=");
+        Serial.print(roll);
+        Serial.print(" pitch=");
+        Serial.print(pitch);
+        Serial.print(" yaw=");
+        Serial.print(yaw);
+        Serial.print(" throttle=");
+        Serial.print(throttle);
+        Serial.print(" arm=");
+        Serial.println(arm ? 1 : 0);
       }
     }
   }
