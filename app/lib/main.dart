@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'control_mapper.dart';
+import 'drone_wifi_service.dart';
 import 'joystick_widget.dart';
 import 'udp_service.dart';
 
@@ -52,10 +53,14 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
   static const int _targetPort = 5005;
 
   final ControlMapper _mapper = const ControlMapper();
+  final DroneWifiService _wifiService = DroneWifiService();
   final JoystickInput _input = JoystickInput();
   late final UdpService _udpService;
   late final ValueNotifier<RcChannels> _channels;
+  DroneWifiSnapshot _wifiSnapshot = const DroneWifiSnapshot.initial();
+  Timer? _wifiTimer;
   Timer? _idleTimer;
+  bool _isConnectingWifi = false;
 
   @override
   void initState() {
@@ -64,15 +69,47 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
     _channels = ValueNotifier<RcChannels>(
       _mapper.mapToRc(_input),
     );
+    _refreshWifiStatus();
+    _wifiTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _refreshWifiStatus(),
+    );
     _pushUpdate();
   }
 
   @override
   void dispose() {
+    _wifiTimer?.cancel();
     _idleTimer?.cancel();
     _udpService.dispose();
     _channels.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshWifiStatus() async {
+    final snapshot = await _wifiService.refresh();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _wifiSnapshot = snapshot;
+    });
+  }
+
+  Future<void> _connectToDroneWifi() async {
+    setState(() {
+      _isConnectingWifi = true;
+    });
+
+    final snapshot = await _wifiService.connect();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _wifiSnapshot = snapshot;
+      _isConnectingWifi = false;
+    });
   }
 
   void _pushUpdate() {
@@ -144,6 +181,24 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                     });
                     _pushUpdate();
                   },
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _udpService.isSending,
+                    builder: (context, isSending, _) {
+                      return _ConnectionPanel(
+                        snapshot: _wifiSnapshot,
+                        targetIp: _targetAddress.address,
+                        targetPort: _targetPort,
+                        udpActive: isSending && _udpService.hasRecentSend,
+                        isConnecting: _isConnectingWifi,
+                        onConnect: _connectToDroneWifi,
+                        onRefresh: _refreshWifiStatus,
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Expanded(
@@ -283,7 +338,7 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isActive ? const Color(0xFF3DD6B4) : const Color(0xFFE0565B);
-    final label = isActive ? 'Connected' : 'Disconnected';
+    final label = isActive ? 'UDP Active' : 'UDP Idle';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -303,6 +358,141 @@ class _StatusPill extends StatelessWidget {
           Text(
             label,
             style: const TextStyle(fontSize: 12, letterSpacing: 0.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConnectionPanel extends StatelessWidget {
+  const _ConnectionPanel({
+    required this.snapshot,
+    required this.targetIp,
+    required this.targetPort,
+    required this.udpActive,
+    required this.isConnecting,
+    required this.onConnect,
+    required this.onRefresh,
+  });
+
+  final DroneWifiSnapshot snapshot;
+  final String targetIp;
+  final int targetPort;
+  final bool udpActive;
+  final bool isConnecting;
+  final VoidCallback onConnect;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final connected = snapshot.connectedToDrone;
+    final statusColor =
+        connected && udpActive ? const Color(0xFF3DD6B4) : const Color(0xFFE0A856);
+    final statusLabel = connected
+        ? (udpActive ? 'Drone link active' : 'Drone WiFi connected')
+        : 'Drone WiFi not connected';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF11141A),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2A303B)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi, color: statusColor, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Wrap(
+              spacing: 14,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _ConnectionText(
+                  label: 'Status',
+                  value: statusLabel,
+                  color: statusColor,
+                ),
+                _ConnectionText(
+                  label: 'SSID',
+                  value: snapshot.ssid ?? 'unknown',
+                ),
+                _ConnectionText(
+                  label: 'Phone IP',
+                  value: snapshot.ipAddress ?? 'none',
+                ),
+                _ConnectionText(
+                  label: 'Target',
+                  value: '$targetIp:$targetPort',
+                ),
+                _ConnectionText(
+                  label: 'UDP',
+                  value: udpActive ? 'sending' : 'idle',
+                ),
+                if (snapshot.message != null && !connected)
+                  _ConnectionText(
+                    label: 'Note',
+                    value: snapshot.message!,
+                    color: const Color(0xFFE0A856),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          IconButton(
+            tooltip: 'Refresh WiFi status',
+            onPressed: onRefresh,
+            icon: const Icon(Icons.refresh),
+          ),
+          const SizedBox(width: 4),
+          FilledButton.icon(
+            onPressed:
+                snapshot.supported && !isConnecting ? onConnect : null,
+            icon: isConnecting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.link),
+            label: Text(isConnecting ? 'Connecting' : 'Connect'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConnectionText extends StatelessWidget {
+  const _ConnectionText({
+    required this.label,
+    required this.value,
+    this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 11, color: Color(0xFFB9C0D3)),
+        children: [
+          TextSpan(
+            text: '$label ',
+            style: const TextStyle(color: Color(0xFF737B8F)),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              color: color ?? const Color(0xFFE7ECF7),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),

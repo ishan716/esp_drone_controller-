@@ -6,6 +6,9 @@
 const char *kSsid = "DroneController";
 const char *kPassword = "12345678";
 const uint16_t kUdpPort = 5005;
+const IPAddress kApIp(192, 168, 4, 1);
+const IPAddress kApGateway(192, 168, 4, 1);
+const IPAddress kApSubnet(255, 255, 255, 0);
 
 const int kCrsfTxPin = 20;
 const int kCrsfRxPin = 21;
@@ -91,13 +94,28 @@ void sendCrsfFrame() {
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println();
+  Serial.println("ESP32-C3 UDP receiver starting...");
+
   setDefaultChannels();
 
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(kSsid, kPassword);
+  WiFi.softAPConfig(kApIp, kApGateway, kApSubnet);
+  const bool apStarted = WiFi.softAP(kSsid, kPassword, 1, 0, 4);
   udp.begin(kUdpPort);
 
+  Serial.print("WiFi AP started: ");
+  Serial.println(apStarted ? "yes" : "no");
+  Serial.print("WiFi AP SSID: ");
+  Serial.println(kSsid);
+  Serial.print("WiFi AP IP: ");
+  Serial.println(WiFi.softAPIP());
+  Serial.print("UDP listening on port: ");
+  Serial.println(kUdpPort);
+
   CrsfSerial.begin(kCrsfBaud, SERIAL_8N1, kCrsfRxPin, kCrsfTxPin);
+  Serial.println("CRSF serial started");
 }
 
 void loop() {
@@ -107,8 +125,12 @@ void loop() {
     const int len = udp.read(buffer, sizeof(buffer) - 1);
     if (len > 0) {
       buffer[len] = '\0';
+      Serial.print("Raw UDP: ");
+      Serial.println(buffer);
+
       StaticJsonDocument<256> doc;
-      if (deserializeJson(doc, buffer) == DeserializationError::Ok) {
+      DeserializationError error = deserializeJson(doc, buffer);
+      if (error == DeserializationError::Ok) {
         const int roll = doc["roll"] | 1500;
         const int pitch = doc["pitch"] | 1500;
         const int yaw = doc["yaw"] | 1500;
@@ -139,6 +161,9 @@ void loop() {
         Serial.print(throttle);
         Serial.print(" arm=");
         Serial.println(arm ? 1 : 0);
+      } else {
+        Serial.print("JSON parse failed: ");
+        Serial.println(error.c_str());
       }
     }
   }
