@@ -1,7 +1,7 @@
 class JoystickInput {
   JoystickInput({
     this.leftX = 0,
-    this.leftY = 0,
+    this.leftY = 1,
     this.rightX = 0,
     this.rightY = 0,
     this.arm = false,

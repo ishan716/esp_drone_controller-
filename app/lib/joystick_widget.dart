@@ -9,6 +9,7 @@ class JoystickWidget extends StatefulWidget {
     this.onStart,
     this.onEnd,
     this.returnToCenter = true,
+    this.initialValue = Offset.zero,
     this.baseColor = const Color(0xFF1B1E24),
     this.accentColor = const Color(0xFF27B4F6),
   });
@@ -18,6 +19,7 @@ class JoystickWidget extends StatefulWidget {
   final VoidCallback? onStart;
   final VoidCallback? onEnd;
   final bool returnToCenter;
+  final Offset initialValue;
   final Color baseColor;
   final Color accentColor;
 
@@ -26,16 +28,26 @@ class JoystickWidget extends StatefulWidget {
 }
 
 class _JoystickWidgetState extends State<JoystickWidget> {
-  Offset _value = Offset.zero;
+  late Offset _value;
 
   double get _radius => widget.size / 2;
+  double get _maxDistance => _radius * 0.85;
+
+  @override
+  void initState() {
+    super.initState();
+    _value = Offset(
+      widget.initialValue.dx.clamp(-1.0, 1.0) * _maxDistance,
+      widget.initialValue.dy.clamp(-1.0, 1.0) * _maxDistance,
+    );
+  }
 
   void _updateValue(Offset localPosition) {
     final dx = localPosition.dx - _radius;
     final dy = localPosition.dy - _radius;
     final offset = Offset(dx, dy);
     final distance = offset.distance;
-    final maxDistance = _radius * 0.85;
+    final maxDistance = _maxDistance;
 
     final clamped = distance > maxDistance
         ? offset * (maxDistance / distance)
@@ -55,10 +67,14 @@ class _JoystickWidgetState extends State<JoystickWidget> {
     if (!widget.returnToCenter) {
       return;
     }
+    final reset = Offset(
+      widget.initialValue.dx.clamp(-1.0, 1.0) * _maxDistance,
+      widget.initialValue.dy.clamp(-1.0, 1.0) * _maxDistance,
+    );
     setState(() {
-      _value = Offset.zero;
+      _value = reset;
     });
-    widget.onChanged(Offset.zero);
+    widget.onChanged(widget.initialValue);
   }
 
   @override

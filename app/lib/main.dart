@@ -229,6 +229,7 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                             size: joystickSize,
                             onChanged: _updateLeft,
                             returnToCenter: false,
+                            initialValue: const Offset(0, 1),
                           ),
                         ],
                       ),

@@ -158,13 +158,28 @@ class DroneWifiService {
   }
 
   Future<bool> _ensureWifiPermission() async {
-    final status = await Permission.locationWhenInUse.request();
-    return status.isGranted || status.isLimited;
+    final results = await [
+      Permission.locationWhenInUse,
+      Permission.nearbyWifiDevices,
+    ].request();
+    return _anyGranted(results.values);
   }
 
   Future<bool> _hasWifiPermission() async {
-    final status = await Permission.locationWhenInUse.status;
-    return status.isGranted || status.isLimited;
+    final statuses = await Future.wait([
+      Permission.locationWhenInUse.status,
+      Permission.nearbyWifiDevices.status,
+    ]);
+    return _anyGranted(statuses);
+  }
+
+  bool _anyGranted(Iterable<PermissionStatus> statuses) {
+    for (final status in statuses) {
+      if (status.isGranted || status.isLimited) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String? _cleanSsid(String? value) {

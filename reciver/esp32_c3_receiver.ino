@@ -18,7 +18,7 @@ const uint32_t kCrsfBaud = 420000;
 const bool kEnableCrsfOutput = true;
 const bool kLogPackets = false;
 const unsigned long kFailsafeTimeoutMs = 300;
-const unsigned long kCrsfFrameIntervalUs = 10000;
+const unsigned long kCrsfFrameIntervalUs = 4000;
 
 const uint8_t kCrsfAddress = 0xC8;
 const uint8_t kCrsfTypeRcChannels = 0x16;
@@ -36,9 +36,12 @@ unsigned long lastApRetryMs = 0;
 unsigned long lastSendUs = 0;
 uint32_t receivedPacketCount = 0;
 uint32_t lastStatusPacketCount = 0;
-uint32_t lastAppliedSequence = 0;
-bool hasAppliedSequence = false;
 int lastClientCount = -1;
+int lastRollUs = 1500;
+int lastPitchUs = 1500;
+int lastYawUs = 1500;
+int lastThrottleUs = 1000;
+int lastArmCommand = 0;
 
 uint8_t crc8(const uint8_t *data, size_t len) {
   uint8_t crc = 0;
@@ -204,22 +207,16 @@ void loop() {
       StaticJsonDocument<256> doc;
       DeserializationError error = deserializeJson(doc, buffer);
       if (error == DeserializationError::Ok) {
-        const uint32_t sequence = doc["seq"] | 0;
-        if (sequence != 0 && hasAppliedSequence &&
-            (int32_t)(sequence - lastAppliedSequence) <= 0) {
-          packetSize = udp.parsePacket();
-          continue;
-        }
-        if (sequence != 0) {
-          lastAppliedSequence = sequence;
-          hasAppliedSequence = true;
-        }
-
         const int roll = doc["roll"] | 1500;
         const int pitch = doc["pitch"] | 1500;
         const int yaw = doc["yaw"] | 1500;
         const int throttle = doc["throttle"] | 1000;
         const int arm = doc["arm"] | 0;
+        lastRollUs = roll;
+        lastPitchUs = pitch;
+        lastYawUs = yaw;
+        lastThrottleUs = throttle;
+        lastArmCommand = arm ? 1 : 0;
 
         channels[0] = mapToCrsf(roll);
         channels[1] = mapToCrsf(pitch);
@@ -277,6 +274,16 @@ void loop() {
     Serial.print("/s");
     Serial.print(" link=");
     Serial.print(linkActive ? "active" : "timeout");
+    Serial.print(" arm=");
+    Serial.print(lastArmCommand);
+    Serial.print(" roll=");
+    Serial.print(lastRollUs);
+    Serial.print(" pitch=");
+    Serial.print(lastPitchUs);
+    Serial.print(" yaw=");
+    Serial.print(lastYawUs);
+    Serial.print(" throttle=");
+    Serial.print(lastThrottleUs);
     Serial.print(" ip=");
     Serial.print(WiFi.softAPIP());
     Serial.print(" ap=");
