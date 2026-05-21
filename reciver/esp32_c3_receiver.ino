@@ -17,7 +17,8 @@ const int kCrsfRxPin = 21;
 const uint32_t kCrsfBaud = 420000;
 const bool kEnableCrsfOutput = true;
 const bool kLogPackets = false;
-const unsigned long kFailsafeTimeoutMs = 1000;
+const unsigned long kFailsafeTimeoutMs = 300;
+const unsigned long kCrsfFrameIntervalUs = 10000;
 
 const uint8_t kCrsfAddress = 0xC8;
 const uint8_t kCrsfTypeRcChannels = 0x16;
@@ -30,9 +31,9 @@ HardwareSerial CrsfSerial(1);
 uint16_t channels[16];
 bool apRunning = false;
 unsigned long lastReceivedMs = 0;
-unsigned long lastSendMs = 0;
 unsigned long lastStatusMs = 0;
 unsigned long lastApRetryMs = 0;
+unsigned long lastSendUs = 0;
 uint32_t receivedPacketCount = 0;
 
 uint8_t crc8(const uint8_t *data, size_t len) {
@@ -184,8 +185,8 @@ void loop() {
     lastApRetryMs = now;
   }
 
-  const int packetSize = udp.parsePacket();
-  if (packetSize > 0) {
+  int packetSize = udp.parsePacket();
+  while (packetSize > 0) {
     char buffer[256];
     const int len = udp.read(buffer, sizeof(buffer) - 1);
     if (len > 0) {
@@ -238,6 +239,7 @@ void loop() {
         }
       }
     }
+    packetSize = udp.parsePacket();
   }
 
   if (now - lastStatusMs >= 2000) {
@@ -256,8 +258,9 @@ void loop() {
     setDefaultChannels();
   }
 
-  if (now - lastSendMs >= 20) {
+  const unsigned long nowUs = micros();
+  if ((unsigned long)(nowUs - lastSendUs) >= kCrsfFrameIntervalUs) {
     sendCrsfFrame();
-    lastSendMs = now;
+    lastSendUs = nowUs;
   }
 }

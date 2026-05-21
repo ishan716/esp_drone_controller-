@@ -8,7 +8,7 @@ class UdpService {
   UdpService({
     required this.address,
     required this.port,
-    Duration interval = const Duration(milliseconds: 16),
+    Duration interval = const Duration(milliseconds: 10),
   }) : _interval = interval;
 
   final InternetAddress address;
@@ -18,7 +18,7 @@ class UdpService {
 
   RawDatagramSocket? _socket;
   Timer? _timer;
-  Map<String, int>? _payload;
+  List<int>? _encodedPayload;
   DateTime? _lastSendAt;
 
   Future<void> startStreaming() async {
@@ -29,10 +29,11 @@ class UdpService {
     _socket ??= await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
 
     _timer = Timer.periodic(_interval, (_) => _send());
+    _send();
   }
 
   void updatePayload(Map<String, int> payload) {
-    _payload = payload;
+    _encodedPayload = utf8.encode(jsonEncode(payload));
   }
 
   void stopStreaming() {
@@ -50,14 +51,13 @@ class UdpService {
 
   void _send() {
     final socket = _socket;
-    final payload = _payload;
-    if (socket == null || payload == null) {
+    final encodedPayload = _encodedPayload;
+    if (socket == null || encodedPayload == null) {
       _updateSending(false);
       return;
     }
 
-    final data = utf8.encode(jsonEncode(payload));
-    socket.send(data, address, port);
+    socket.send(encodedPayload, address, port);
     _lastSendAt = DateTime.now();
     _updateSending(true);
   }
@@ -73,6 +73,6 @@ class UdpService {
     if (lastSendAt == null) {
       return false;
     }
-    return DateTime.now().difference(lastSendAt).inMilliseconds < 300;
+    return DateTime.now().difference(lastSendAt).inMilliseconds < 150;
   }
 }

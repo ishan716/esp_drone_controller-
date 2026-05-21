@@ -73,8 +73,8 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
       const Duration(seconds: 2),
       (_) => _refreshWifiStatus(),
     );
-    _udpService.startStreaming();
     _pushUpdate();
+    _udpService.startStreaming();
   }
 
   @override
