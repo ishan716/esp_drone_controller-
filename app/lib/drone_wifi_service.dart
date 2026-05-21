@@ -79,6 +79,14 @@ class DroneWifiService {
       final ssid = _cleanSsid(rawSsid);
       final connectedToDrone = ssid == config.ssid;
 
+      if (connectedToDrone) {
+        try {
+          await WiFiForIoTPlugin.forceWifiUsage(true);
+        } catch (_) {
+          // forceWifiUsage can throw on some Android versions; ignore.
+        }
+      }
+
       return DroneWifiSnapshot(
         supported: true,
         ssid: ssid,

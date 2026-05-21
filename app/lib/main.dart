@@ -91,9 +91,13 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
     if (!mounted) {
       return;
     }
+    final wasConnected = _wifiSnapshot.connectedToDrone;
     setState(() {
       _wifiSnapshot = snapshot;
     });
+    if (snapshot.connectedToDrone && !wasConnected) {
+      await _udpService.restart();
+    }
   }
 
   Future<void> _connectToDroneWifi() async {
@@ -106,10 +110,15 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
       return;
     }
 
+    final wasConnected = _wifiSnapshot.connectedToDrone;
     setState(() {
       _wifiSnapshot = snapshot;
       _isConnectingWifi = false;
     });
+
+    if (snapshot.connectedToDrone && !wasConnected) {
+      await _udpService.restart();
+    }
   }
 
   void _pushUpdate() {

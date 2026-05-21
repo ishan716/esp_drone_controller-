@@ -42,6 +42,14 @@ class UdpService {
     _updateSending(false);
   }
 
+  Future<void> restart() async {
+    stopStreaming();
+    _socket?.close();
+    _socket = null;
+    _lastSendAt = null;
+    await startStreaming();
+  }
+
   void dispose() {
     stopStreaming();
     _socket?.close();
