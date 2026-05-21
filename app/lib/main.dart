@@ -59,7 +59,6 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
   late final ValueNotifier<RcChannels> _channels;
   DroneWifiSnapshot _wifiSnapshot = const DroneWifiSnapshot.initial();
   Timer? _wifiTimer;
-  Timer? _idleTimer;
   bool _isConnectingWifi = false;
 
   @override
@@ -74,13 +73,13 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
       const Duration(seconds: 2),
       (_) => _refreshWifiStatus(),
     );
+    _udpService.startStreaming();
     _pushUpdate();
   }
 
   @override
   void dispose() {
     _wifiTimer?.cancel();
-    _idleTimer?.cancel();
     _udpService.dispose();
     _channels.dispose();
     super.dispose();
@@ -116,12 +115,6 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
     final channels = _mapper.mapToRc(_input);
     _channels.value = channels;
     _udpService.updatePayload(channels.toJsonMap());
-    _udpService.startStreaming();
-
-    _idleTimer?.cancel();
-    _idleTimer = Timer(const Duration(milliseconds: 300), () {
-      _udpService.stopStreaming();
-    });
   }
 
   void _updateLeft(Offset value) {
@@ -138,12 +131,14 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompactLayout = MediaQuery.sizeOf(context).height < 420;
+
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 44,
-        title: const Text(
+        toolbarHeight: isCompactLayout ? 28 : 36,
+        title: Text(
           'Drone Controller',
-          style: TextStyle(fontSize: 16),
+          style: TextStyle(fontSize: isCompactLayout ? 14 : 16),
         ),
         centerTitle: true,
         actions: [
@@ -153,7 +148,10 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
               final active = isSending && _udpService.hasRecentSend;
               return Padding(
                 padding: const EdgeInsets.only(right: 16),
-                child: _StatusPill(isActive: active),
+                child: _StatusPill(
+                  isActive: active,
+                  isCompact: isCompactLayout,
+                ),
               );
             },
           ),
@@ -164,17 +162,25 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
           builder: (context, constraints) {
             final width = constraints.maxWidth;
             final height = constraints.maxHeight;
+            final isCompactHeight = height < 420;
+            final reservedHeight = isCompactHeight ? 100.0 : 150.0;
+            final maxJoystickByHeight =
+                (height - reservedHeight).clamp(120.0, height);
             final joystickSize = math.min(
-              width < 500 ? 160.0 : 210.0,
-              height * 0.68,
+              width < 500 ? 150.0 : 210.0,
+              maxJoystickByHeight,
             );
             final centerPanelWidth = width < 700 ? 130.0 : 170.0;
+            final topGap = isCompactHeight ? 0.0 : 4.0;
+            final sectionGap = isCompactHeight ? 2.0 : 6.0;
+            final bottomGap = isCompactHeight ? 0.0 : 6.0;
 
             return Column(
               children: [
-                const SizedBox(height: 4),
+                SizedBox(height: topGap),
                 _ControlRow(
                   armEnabled: _input.arm,
+                  isCompact: isCompactHeight,
                   onArmToggle: () {
                     setState(() {
                       _input.arm = !_input.arm;
@@ -182,7 +188,7 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                     _pushUpdate();
                   },
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: sectionGap),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: ValueListenableBuilder<bool>(
@@ -194,13 +200,14 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                         targetPort: _targetPort,
                         udpActive: isSending && _udpService.hasRecentSend,
                         isConnecting: _isConnectingWifi,
+                        isCompact: isCompactHeight,
                         onConnect: _connectToDroneWifi,
                         onRefresh: _refreshWifiStatus,
                       );
                     },
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: topGap),
                 Expanded(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -240,7 +247,7 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: bottomGap),
               ],
             );
           },
@@ -251,10 +258,15 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
 }
 
 class _ControlRow extends StatelessWidget {
-  const _ControlRow({required this.armEnabled, required this.onArmToggle});
+  const _ControlRow({
+    required this.armEnabled,
+    required this.onArmToggle,
+    required this.isCompact,
+  });
 
   final bool armEnabled;
   final VoidCallback onArmToggle;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -266,11 +278,13 @@ class _ControlRow extends StatelessWidget {
           _ActionButton(
             label: armEnabled ? 'DISARM' : 'ARM',
             color: armEnabled ? const Color(0xFFE0565B) : const Color(0xFF3DD6B4),
+            isCompact: isCompact,
             onPressed: onArmToggle,
           ),
-          const _ActionButton(
+          _ActionButton(
             label: 'MODE',
             color: Color(0xFF2D3140),
+            isCompact: isCompact,
           ),
         ],
       ),
@@ -282,22 +296,27 @@ class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.label,
     required this.color,
+    required this.isCompact,
     this.onPressed,
   });
 
   final String label;
   final Color color;
+  final bool isCompact;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 120,
-      height: 44,
+      width: isCompact ? 110 : 120,
+      height: isCompact ? 36 : 44,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
+          padding: isCompact
+              ? const EdgeInsets.symmetric(horizontal: 8)
+              : const EdgeInsets.symmetric(horizontal: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -305,7 +324,10 @@ class _ActionButton extends StatelessWidget {
         onPressed: onPressed,
         child: Text(
           label,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: isCompact ? 11 : 12,
+          ),
         ),
       ),
     );
@@ -331,9 +353,10 @@ class _JoystickLabel extends StatelessWidget {
 }
 
 class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.isActive});
+  const _StatusPill({required this.isActive, required this.isCompact});
 
   final bool isActive;
+  final bool isCompact;
 
   @override
   Widget build(BuildContext context) {
@@ -341,7 +364,9 @@ class _StatusPill extends StatelessWidget {
     final label = isActive ? 'UDP Active' : 'UDP Idle';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: isCompact
+          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6)
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF1B1E24),
         borderRadius: BorderRadius.circular(20),
@@ -357,7 +382,10 @@ class _StatusPill extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             label,
-            style: const TextStyle(fontSize: 12, letterSpacing: 0.4),
+            style: TextStyle(
+              fontSize: isCompact ? 11 : 12,
+              letterSpacing: 0.4,
+            ),
           ),
         ],
       ),
@@ -372,6 +400,7 @@ class _ConnectionPanel extends StatelessWidget {
     required this.targetPort,
     required this.udpActive,
     required this.isConnecting,
+    required this.isCompact,
     required this.onConnect,
     required this.onRefresh,
   });
@@ -381,6 +410,7 @@ class _ConnectionPanel extends StatelessWidget {
   final int targetPort;
   final bool udpActive;
   final bool isConnecting;
+  final bool isCompact;
   final VoidCallback onConnect;
   final VoidCallback onRefresh;
 
@@ -395,7 +425,10 @@ class _ConnectionPanel extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: isCompact ? 6 : 10,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xFF11141A),
         borderRadius: BorderRadius.circular(8),
@@ -403,40 +436,46 @@ class _ConnectionPanel extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.wifi, color: statusColor, size: 20),
+          Icon(Icons.wifi, color: statusColor, size: isCompact ? 18 : 20),
           const SizedBox(width: 10),
           Expanded(
             child: Wrap(
               spacing: 14,
-              runSpacing: 4,
+              runSpacing: isCompact ? 2 : 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 _ConnectionText(
                   label: 'Status',
                   value: statusLabel,
                   color: statusColor,
+                  isCompact: isCompact,
                 ),
                 _ConnectionText(
                   label: 'SSID',
                   value: snapshot.ssid ?? 'unknown',
+                  isCompact: isCompact,
                 ),
                 _ConnectionText(
                   label: 'Phone IP',
                   value: snapshot.ipAddress ?? 'none',
+                  isCompact: isCompact,
                 ),
                 _ConnectionText(
                   label: 'Target',
                   value: '$targetIp:$targetPort',
+                  isCompact: isCompact,
                 ),
                 _ConnectionText(
                   label: 'UDP',
                   value: udpActive ? 'sending' : 'idle',
+                  isCompact: isCompact,
                 ),
                 if (snapshot.message != null && !connected)
                   _ConnectionText(
                     label: 'Note',
                     value: snapshot.message!,
                     color: const Color(0xFFE0A856),
+                    isCompact: isCompact,
                   ),
               ],
             ),
@@ -445,7 +484,7 @@ class _ConnectionPanel extends StatelessWidget {
           IconButton(
             tooltip: 'Refresh WiFi status',
             onPressed: onRefresh,
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh, size: isCompact ? 18 : 20),
           ),
           const SizedBox(width: 4),
           FilledButton.icon(
@@ -459,6 +498,13 @@ class _ConnectionPanel extends StatelessWidget {
                   )
                 : const Icon(Icons.link),
             label: Text(isConnecting ? 'Connecting' : 'Connect'),
+            style: isCompact
+                ? FilledButton.styleFrom(
+                    minimumSize: const Size(0, 32),
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    textStyle: const TextStyle(fontSize: 12),
+                  )
+                : null,
           ),
         ],
       ),
@@ -470,18 +516,23 @@ class _ConnectionText extends StatelessWidget {
   const _ConnectionText({
     required this.label,
     required this.value,
+    required this.isCompact,
     this.color,
   });
 
   final String label;
   final String value;
+  final bool isCompact;
   final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 11, color: Color(0xFFB9C0D3)),
+        style: TextStyle(
+          fontSize: isCompact ? 10 : 11,
+          color: const Color(0xFFB9C0D3),
+        ),
         children: [
           TextSpan(
             text: '$label ',

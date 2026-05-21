@@ -16,6 +16,8 @@ const int kCrsfTxPin = 20;
 const int kCrsfRxPin = 21;
 const uint32_t kCrsfBaud = 420000;
 const bool kEnableCrsfOutput = true;
+const bool kLogPackets = false;
+const unsigned long kFailsafeTimeoutMs = 1000;
 
 const uint8_t kCrsfAddress = 0xC8;
 const uint8_t kCrsfTypeRcChannels = 0x16;
@@ -189,8 +191,10 @@ void loop() {
     if (len > 0) {
       buffer[len] = '\0';
       receivedPacketCount++;
-      Serial.print("Raw UDP: ");
-      Serial.println(buffer);
+      if (kLogPackets) {
+        Serial.print("Raw UDP: ");
+        Serial.println(buffer);
+      }
 
       StaticJsonDocument<256> doc;
       DeserializationError error = deserializeJson(doc, buffer);
@@ -209,25 +213,29 @@ void loop() {
 
         lastReceivedMs = millis();
 
-        Serial.print("UDP packet from ");
-        Serial.print(udp.remoteIP());
-        Serial.print(":");
-        Serial.print(udp.remotePort());
-        Serial.print(" len=");
-        Serial.print(len);
-        Serial.print(" roll=");
-        Serial.print(roll);
-        Serial.print(" pitch=");
-        Serial.print(pitch);
-        Serial.print(" yaw=");
-        Serial.print(yaw);
-        Serial.print(" throttle=");
-        Serial.print(throttle);
-        Serial.print(" arm=");
-        Serial.println(arm ? 1 : 0);
+        if (kLogPackets) {
+          Serial.print("UDP packet from ");
+          Serial.print(udp.remoteIP());
+          Serial.print(":");
+          Serial.print(udp.remotePort());
+          Serial.print(" len=");
+          Serial.print(len);
+          Serial.print(" roll=");
+          Serial.print(roll);
+          Serial.print(" pitch=");
+          Serial.print(pitch);
+          Serial.print(" yaw=");
+          Serial.print(yaw);
+          Serial.print(" throttle=");
+          Serial.print(throttle);
+          Serial.print(" arm=");
+          Serial.println(arm ? 1 : 0);
+        }
       } else {
-        Serial.print("JSON parse failed: ");
-        Serial.println(error.c_str());
+        if (kLogPackets) {
+          Serial.print("JSON parse failed: ");
+          Serial.println(error.c_str());
+        }
       }
     }
   }
@@ -244,7 +252,7 @@ void loop() {
     lastStatusMs = now;
   }
 
-  if (now - lastReceivedMs > 300) {
+  if (now - lastReceivedMs > kFailsafeTimeoutMs) {
     setDefaultChannels();
   }
 
