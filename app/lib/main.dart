@@ -60,13 +60,14 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
   DroneWifiSnapshot _wifiSnapshot = const DroneWifiSnapshot.initial();
   Timer? _wifiTimer;
   bool _isConnectingWifi = false;
+  int _packetSequence = 0;
 
   @override
   void initState() {
     super.initState();
     _udpService = UdpService(address: _targetAddress, port: _targetPort);
     _channels = ValueNotifier<RcChannels>(
-      _mapper.mapToRc(_input),
+      _mapper.mapToRc(_input, sequence: _packetSequence),
     );
     _refreshWifiStatus();
     _wifiTimer = Timer.periodic(
@@ -112,9 +113,20 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
   }
 
   void _pushUpdate() {
-    final channels = _mapper.mapToRc(_input);
+    _packetSequence = (_packetSequence + 1) & 0x7FFFFFFF;
+    final channels = _mapper.mapToRc(_input, sequence: _packetSequence);
     _channels.value = channels;
     _udpService.updatePayload(channels.toJsonMap());
+  }
+
+  void _setArmState(bool armed) {
+    if (_input.arm == armed) {
+      return;
+    }
+    setState(() {
+      _input.arm = armed;
+    });
+    _pushUpdate();
   }
 
   void _updateLeft(Offset value) {
@@ -181,12 +193,8 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
                 _ControlRow(
                   armEnabled: _input.arm,
                   isCompact: isCompactHeight,
-                  onArmToggle: () {
-                    setState(() {
-                      _input.arm = !_input.arm;
-                    });
-                    _pushUpdate();
-                  },
+                  onArm: () => _setArmState(true),
+                  onDisarm: () => _setArmState(false),
                 ),
                 SizedBox(height: sectionGap),
                 Padding(
@@ -260,12 +268,14 @@ class _DroneControllerHomeState extends State<DroneControllerHome> {
 class _ControlRow extends StatelessWidget {
   const _ControlRow({
     required this.armEnabled,
-    required this.onArmToggle,
+    required this.onArm,
+    required this.onDisarm,
     required this.isCompact,
   });
 
   final bool armEnabled;
-  final VoidCallback onArmToggle;
+  final VoidCallback onArm;
+  final VoidCallback onDisarm;
   final bool isCompact;
 
   @override
@@ -276,15 +286,16 @@ class _ControlRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _ActionButton(
-            label: armEnabled ? 'DISARM' : 'ARM',
-            color: armEnabled ? const Color(0xFFE0565B) : const Color(0xFF3DD6B4),
+            label: 'ARM',
+            color: armEnabled ? const Color(0xFF247861) : const Color(0xFF3DD6B4),
             isCompact: isCompact,
-            onPressed: onArmToggle,
+            onPressed: armEnabled ? null : onArm,
           ),
           _ActionButton(
-            label: 'MODE',
-            color: Color(0xFF2D3140),
+            label: 'DISARM',
+            color: const Color(0xFFE0565B),
             isCompact: isCompact,
+            onPressed: armEnabled ? onDisarm : null,
           ),
         ],
       ),

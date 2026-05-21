@@ -35,6 +35,10 @@ unsigned long lastStatusMs = 0;
 unsigned long lastApRetryMs = 0;
 unsigned long lastSendUs = 0;
 uint32_t receivedPacketCount = 0;
+uint32_t lastStatusPacketCount = 0;
+uint32_t lastAppliedSequence = 0;
+bool hasAppliedSequence = false;
+int lastClientCount = -1;
 
 uint8_t crc8(const uint8_t *data, size_t len) {
   uint8_t crc = 0;
@@ -200,6 +204,17 @@ void loop() {
       StaticJsonDocument<256> doc;
       DeserializationError error = deserializeJson(doc, buffer);
       if (error == DeserializationError::Ok) {
+        const uint32_t sequence = doc["seq"] | 0;
+        if (sequence != 0 && hasAppliedSequence &&
+            (int32_t)(sequence - lastAppliedSequence) <= 0) {
+          packetSize = udp.parsePacket();
+          continue;
+        }
+        if (sequence != 0) {
+          lastAppliedSequence = sequence;
+          hasAppliedSequence = true;
+        }
+
         const int roll = doc["roll"] | 1500;
         const int pitch = doc["pitch"] | 1500;
         const int yaw = doc["yaw"] | 1500;
@@ -243,14 +258,30 @@ void loop() {
   }
 
   if (now - lastStatusMs >= 2000) {
+    const int clientCount = WiFi.softAPgetStationNum();
+    const uint32_t packetsSinceLastStatus = receivedPacketCount - lastStatusPacketCount;
+    const bool linkActive = now - lastReceivedMs <= kFailsafeTimeoutMs;
+
+    if (clientCount != lastClientCount) {
+      Serial.print("WiFi clients changed: ");
+      Serial.println(clientCount);
+      lastClientCount = clientCount;
+    }
+
     Serial.print("Status clients=");
-    Serial.print(WiFi.softAPgetStationNum());
+    Serial.print(clientCount);
     Serial.print(" packets=");
     Serial.print(receivedPacketCount);
+    Serial.print(" rate=");
+    Serial.print(packetsSinceLastStatus / 2);
+    Serial.print("/s");
+    Serial.print(" link=");
+    Serial.print(linkActive ? "active" : "timeout");
     Serial.print(" ip=");
     Serial.print(WiFi.softAPIP());
     Serial.print(" ap=");
     Serial.println(apRunning ? "on" : "off");
+    lastStatusPacketCount = receivedPacketCount;
     lastStatusMs = now;
   }
 
